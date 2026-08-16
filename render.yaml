@@ -1,0 +1,36 @@
+# Render reads this on first deploy, so the service is configured in the repo
+# rather than in a dashboard nobody can diff.
+services:
+  - type: web
+    name: riyad-api
+    runtime: node
+    region: frankfurt          # same continent as the database and the buyers
+    plan: free
+    buildCommand: npm ci && npm run build
+    # Migrations run before the server accepts a request, so a deploy that
+    # changes the schema cannot serve traffic against the old one.
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false            # set in the dashboard, never in the repo
+      - key: SESSION_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: SITE_URL
+        sync: false
+      - key: REVALIDATE_SECRET
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NOTIFY_EMAIL
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: ADMIN_URL
+        sync: false
