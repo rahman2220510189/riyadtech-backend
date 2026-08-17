@@ -81,3 +81,74 @@ function escape(text: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+/**
+ * Email sent *to* a customer, rather than to us.
+ *
+ * Different shape from a notification: one clear action, an explanation of why
+ * it arrived, and a plain-text alternative — password reset mail is exactly the
+ * kind that corporate filters strip to text before a human sees it.
+ *
+ * Failures are logged, never thrown. The caller has already answered the
+ * request, and a reset that says "sent" when the mail bounced is better than
+ * a 500 that tells an attacker the address exists.
+ */
+export function notifyCustomer(message: {
+  to: string;
+  subject: string;
+  heading: string;
+  body: string;
+  action?: { label: string; url: string };
+  footer?: string;
+}): void {
+  if (!resend) {
+    console.info(
+      `[email] not configured — would have sent "${message.subject}" to ${message.to}` +
+        (message.action ? `\n         link: ${message.action.url}` : ""),
+    );
+    return;
+  }
+
+  const html = `
+<div style="font:15px/1.6 -apple-system,system-ui,sans-serif;color:#131A19;background:#F4F5F0;padding:32px">
+  <div style="max-width:520px;margin:0 auto;background:#FBFBF8;border:1px solid #DCE0D8;border-radius:4px;padding:32px">
+    <p style="margin:0 0 20px;font:12px ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6E7A77">Riyad Tech</p>
+    <h1 style="margin:0 0 18px;font-size:22px;line-height:1.25">${escape(message.heading)}</h1>
+    <p style="margin:0 0 24px;color:#3A4443">${escape(message.body)}</p>
+    ${
+      message.action
+        ? `<p style="margin:0 0 24px"><a href="${escape(message.action.url)}" style="display:inline-block;background:#1F4D45;color:#F4F5F0;text-decoration:none;padding:12px 22px;border-radius:2px;font-weight:500">${escape(message.action.label)}</a></p>
+           <p style="margin:0 0 24px;font-size:13px;color:#6E7A77;word-break:break-all">Or paste this into your browser:<br>${escape(message.action.url)}</p>`
+        : ""
+    }
+    ${
+      message.footer
+        ? `<p style="margin:24px 0 0;padding-top:18px;border-top:1px solid #DCE0D8;font-size:13px;color:#6E7A77">${escape(message.footer)}</p>`
+        : ""
+    }
+  </div>
+</div>`;
+
+  const text = [
+    message.heading,
+    "",
+    message.body,
+    message.action ? `\n${message.action.label}: ${message.action.url}` : "",
+    message.footer ? `\n${message.footer}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  resend.emails
+    .send({
+      from: env.FROM_EMAIL,
+      to: message.to,
+      subject: message.subject,
+      html,
+      text,
+    })
+    .then((result) => {
+      if (result.error) console.warn("[email] rejected:", result.error);
+    })
+    .catch((error) => console.warn("[email] failed:", error));
+}

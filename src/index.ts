@@ -4,6 +4,7 @@ import helmet from "helmet";
 import { env } from "./env.js";
 import { pool } from "./db/index.js";
 import { accountRouter } from "./routes/account.js";
+import { chatRouter } from "./routes/chat.js";
 import { contentRouter } from "./routes/content.js";
 import { leadsRouter } from "./routes/leads.js";
 import { productsRouter } from "./routes/products.js";
@@ -54,6 +55,7 @@ app.use("/api/v1/admin", adminRouter);
 
 app.use("/api/v1", contentRouter);
 app.use("/api/v1", accountRouter);
+app.use("/api/v1", chatRouter);
 app.use("/api/v1", leadsRouter);
 app.use("/api/v1", productsRouter);
 app.use("/api/v1", reviewsRouter);
@@ -67,6 +69,7 @@ const server = app.listen(env.PORT, () => {
   console.info(`  leads     POST /api/v1/leads`);
   console.info(`  reviews   POST /api/v1/reviews`);
   console.info(`  products  GET  /api/v1/products`);
+  console.info(`  chat      POST /api/v1/chat`);
   console.info(`  account   POST /api/v1/account/login`);
   console.info(`  admin     POST /api/v1/admin/login`);
 });

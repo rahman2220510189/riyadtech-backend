@@ -19,6 +19,7 @@ const schema = z.object({
     .min(24, "SESSION_SECRET must be at least 24 characters"),
   ALLOWED_ORIGINS: z.string().default("http://localhost:3000"),
   SITE_URL: z.string().default(""),
+  REVALIDATE_SECRET: z.string().default(""),
   /* Optional: uploads are simply disabled until this is set. */
   CLOUDINARY_URL: z.string().default(""),
   /* Optional: notifications are simply skipped until these are set. */
@@ -26,7 +27,14 @@ const schema = z.object({
   NOTIFY_EMAIL: z.string().default(""),
   FROM_EMAIL: z.string().default("Riyad Tech <onboarding@resend.dev>"),
   ADMIN_URL: z.string().default("http://localhost:5173"),
-  REVALIDATE_SECRET: z.string().default(""),
+  /* The assistant. Additional accounts go in GROQ_API_KEY_1, _2, _3 and are
+     picked up without a code change. Absent, the chat simply reports itself
+     unavailable and the site carries on. */
+  GROQ_API_KEY: z.string().default(""),
+  /* Groq retires models on a few months' notice — llama-3.3-70b-versatile was
+     deprecated in June 2026 and stops answering. Keeping the name in the
+     environment means the next retirement is a dashboard edit, not a deploy. */
+  GROQ_MODEL: z.string().default("openai/gpt-oss-120b"),
 });
 
 const parsed = schema.safeParse(process.env);

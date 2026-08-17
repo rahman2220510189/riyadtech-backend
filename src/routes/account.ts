@@ -1,17 +1,19 @@
+import crypto from "node:crypto";
 import { Router } from "express";
 import argon2 from "argon2";
 import rateLimit from "express-rate-limit";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import {
   conversations,
   customers,
   messages,
+  passwordResets,
   productRequests,
   products,
 } from "../db/schema.js";
-import { notify } from "../lib/email.js";
+import { notify, notifyCustomer } from "../lib/email.js";
 import { env } from "../env.js";
 
 /**
@@ -442,4 +444,199 @@ accountRouter.get("/account/unread", requireCustomer, async (req, res) => {
     );
 
   res.json({ unread: rows.length });
+});
+
+/* ------------------------------------------------------- password recovery */
+
+/**
+ * The reset flow, in three routes.
+ *
+ * Two rules run through all of it:
+ *
+ *   The response never reveals whether an address has an account. Someone who
+ *   can type addresses into this form must not be able to learn which of their
+ *   contacts are our customers.
+ *
+ *   Only a hash of the token is stored, and the row is deleted the moment it
+ *   is used. A link works exactly once, even though it will sit in an inbox
+ *   afterwards — and often be opened by a corporate mail scanner first.
+ */
+
+const TOKEN_TTL_MINUTES = 60;
+
+const hashToken = (token: string) =>
+  crypto.createHash("sha256").update(token).digest("hex");
+
+const resetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+});
+
+accountRouter.post("/account/forgot", resetLimiter, async (req, res) => {
+  const parsed = z
+    .object({ email: z.string().trim().email().max(254) })
+    .safeParse(req.body);
+
+  /* Identical response whether the address exists, is malformed, or the email
+     fails to send. Anything else is an account-enumeration oracle. */
+  const done = () =>
+    res.json({
+      ok: true,
+      message:
+        "If that address has an account, a reset link is on its way. It expires in an hour.",
+    });
+
+  if (!parsed.success) return void done();
+
+  const email = parsed.data.email.toLowerCase();
+
+  const [customer] = await db
+    .select({ id: customers.id, name: customers.name, email: customers.email })
+    .from(customers)
+    .where(eq(customers.email, email))
+    .limit(1);
+
+  if (!customer) return void done();
+
+  /* Housekeeping while we are here: expired rows are dead weight and there is
+     no scheduler on a free instance to sweep them. */
+  await db.delete(passwordResets).where(lt(passwordResets.expiresAt, new Date()));
+
+  /* Any outstanding link for this account stops working now. Requesting a
+     second reset should invalidate the first. */
+  await db.delete(passwordResets).where(eq(passwordResets.customerId, customer.id));
+
+  const token = crypto.randomBytes(32).toString("base64url");
+
+  await db.insert(passwordResets).values({
+    customerId: customer.id,
+    tokenHash: hashToken(token),
+    expiresAt: new Date(Date.now() + TOKEN_TTL_MINUTES * 60 * 1000),
+  });
+
+  const link = `${env.SITE_URL || "http://localhost:3000"}/portal/reset?token=${token}`;
+
+  notifyCustomer({
+    to: customer.email,
+    subject: "Reset your Riyad Tech password",
+    heading: "Reset your password",
+    body: `Hello ${customer.name}, someone asked to reset the password on your Riyad Tech account. If that was not you, ignore this — nothing has changed and the link below will expire on its own.`,
+    action: { label: "Choose a new password", url: link },
+    footer: `This link works once and expires in ${TOKEN_TTL_MINUTES} minutes.`,
+  });
+
+  done();
+});
+
+/** Checked when the reset page loads, so a dead link says so before the
+    visitor types a new password twice. */
+accountRouter.get("/account/reset/:token", async (req, res) => {
+  const [row] = await db
+    .select({ id: passwordResets.id, expiresAt: passwordResets.expiresAt })
+    .from(passwordResets)
+    .where(eq(passwordResets.tokenHash, hashToken(req.params.token)))
+    .limit(1);
+
+  if (!row || row.expiresAt < new Date()) {
+    res.status(400).json({ error: "That link has expired or has already been used." });
+    return;
+  }
+
+  res.json({ ok: true });
+});
+
+accountRouter.post("/account/reset", resetLimiter, async (req, res) => {
+  const parsed = z
+    .object({
+      token: z.string().min(1),
+      password: z.string().min(12, "Use at least 12 characters"),
+    })
+    .safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(422).json({
+      error: "Some fields need attention",
+      fields: parsed.error.flatten().fieldErrors,
+    });
+    return;
+  }
+
+  const [row] = await db
+    .select()
+    .from(passwordResets)
+    .where(eq(passwordResets.tokenHash, hashToken(parsed.data.token)))
+    .limit(1);
+
+  if (!row || row.expiresAt < new Date()) {
+    res.status(400).json({ error: "That link has expired or has already been used." });
+    return;
+  }
+
+  await db
+    .update(customers)
+    .set({
+      passwordHash: await argon2.hash(parsed.data.password, {
+        type: argon2.argon2id,
+      }),
+    })
+    .where(eq(customers.id, row.customerId));
+
+  await db.delete(passwordResets).where(eq(passwordResets.id, row.id));
+
+  res.json({ ok: true });
+});
+
+/** Changing a password while signed in. The current one is required, so a
+    borrowed laptop cannot be used to lock the owner out. */
+accountRouter.post("/account/password", requireCustomer, async (req, res) => {
+  const parsed = z
+    .object({
+      current: z.string().min(1),
+      password: z.string().min(12, "Use at least 12 characters"),
+    })
+    .safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(422).json({
+      error: "Some fields need attention",
+      fields: parsed.error.flatten().fieldErrors,
+    });
+    return;
+  }
+
+  const [customer] = await db
+    .select()
+    .from(customers)
+    .where(eq(customers.id, req.session.customerId!))
+    .limit(1);
+
+  if (!customer) {
+    res.status(401).json({ error: "Not signed in" });
+    return;
+  }
+
+  const ok = await argon2
+    .verify(customer.passwordHash, parsed.data.current)
+    .catch(() => false);
+
+  if (!ok) {
+    res.status(422).json({
+      error: "That is not your current password",
+      fields: { current: ["That is not your current password"] },
+    });
+    return;
+  }
+
+  await db
+    .update(customers)
+    .set({
+      passwordHash: await argon2.hash(parsed.data.password, {
+        type: argon2.argon2id,
+      }),
+    })
+    .where(eq(customers.id, customer.id));
+
+  res.json({ ok: true });
 });

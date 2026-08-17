@@ -332,6 +332,33 @@ export const messages = pgTable(
   (t) => [index("messages_conversation_idx").on(t.conversationId, t.createdAt)],
 );
 
+/**
+ * One-time tokens for password resets.
+ *
+ * Only a hash of the token is stored. If this table leaks, the rows in it are
+ * useless — the same reasoning as never storing a password.
+ *
+ * A row is deleted the moment it is used, so a link works exactly once even if
+ * it is still in an inbox, a browser history, or a corporate mail scanner that
+ * follows every link it sees.
+ */
+export const passwordResets = pgTable(
+  "password_resets",
+  {
+    id: serial("id").primaryKey(),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** sha256 of the token that was emailed. The token itself is never stored. */
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("password_resets_expires_idx").on(t.expiresAt)],
+);
+
 /* ------------------------------------------------------------------- admin */
 
 /**
@@ -377,6 +404,7 @@ export type Review = typeof reviews.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type ProductRequest = typeof productRequests.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
+export type PasswordReset = typeof passwordResets.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type User = typeof users.$inferSelect;
