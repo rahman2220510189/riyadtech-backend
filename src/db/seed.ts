@@ -227,9 +227,24 @@ async function main() {
       },
       {
         key: "linkedin_url",
-        value: "https://www.linkedin.com/company/riyad-tech",
+        value: "https://www.linkedin.com/company/riyad-tech/",
         label: "LinkedIn",
+        hint: "Leave empty to hide the link",
         sort: 1,
+      },
+      {
+        key: "instagram_url",
+        value: "https://www.instagram.com/riya_dtech/",
+        label: "Instagram",
+        hint: "Leave empty to hide the link",
+        sort: 2,
+      },
+      {
+        key: "facebook_url",
+        value: "https://www.facebook.com/riyadtech.bd",
+        label: "Facebook",
+        hint: "Leave empty to hide the link",
+        sort: 3,
       },
       {
         key: "cal_url",
