@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { leads } from "../db/schema.js";
-import { notify } from "../lib/email.js";
+import { notify, notifyCustomer } from "../lib/email.js";
 import { env } from "../env.js";
 
 /**
@@ -66,6 +66,18 @@ leadsRouter.post("/leads", limiter, async (req, res) => {
     message,
     source: source || "contact",
     ip: req.ip ?? null,
+  });
+
+  /* A short confirmation, sent to them rather than to us.
+     Nobody enjoys wondering whether a form worked, and the alternative — a
+     second submission an hour later — costs us both. */
+  notifyCustomer({
+    to: email,
+    subject: "We have your message — Riyad Tech",
+    heading: `Thank you, ${name.split(" ")[0]}`,
+    body: "We have your message and will reply within one working day. If it is urgent, book a call and we will talk sooner.",
+    action: { label: "Book a 15-minute call", url: `${env.SITE_URL || "https://riyadtech.xyz"}/contact` },
+    footer: "You are receiving this because you wrote to us through riyadtech.xyz. No list, no newsletter.",
   });
 
   notify({

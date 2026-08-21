@@ -93,6 +93,31 @@ function escape(text: string): string {
  * request, and a reset that says "sent" when the mail bounced is better than
  * a 500 that tells an attacker the address exists.
  */
+/**
+ * Addresses that exist only to waste a sender's reputation.
+ *
+ * A confirmation to a made-up address bounces, and enough bounces make a
+ * domain look like a spammer to the receiving side. Our own notification is
+ * sent regardless — we still want to know somebody wrote in, even if the
+ * address they left is nonsense.
+ */
+const throwaway = new Set([
+  "example.com",
+  "example.org",
+  "test.com",
+  "mailinator.com",
+  "guerrillamail.com",
+  "10minutemail.com",
+  "tempmail.com",
+  "yopmail.com",
+]);
+
+function worthSending(address: string): boolean {
+  const domain = address.split("@")[1]?.toLowerCase();
+  if (!domain || !domain.includes(".")) return false;
+  return !throwaway.has(domain);
+}
+
 export function notifyCustomer(message: {
   to: string;
   subject: string;
@@ -101,6 +126,11 @@ export function notifyCustomer(message: {
   action?: { label: string; url: string };
   footer?: string;
 }): void {
+  if (!worthSending(message.to)) {
+    console.info(`[email] skipped a throwaway address: ${message.to}`);
+    return;
+  }
+
   if (!resend) {
     console.info(
       `[email] not configured — would have sent "${message.subject}" to ${message.to}` +

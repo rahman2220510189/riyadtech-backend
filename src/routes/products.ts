@@ -4,7 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { productRequests, products } from "../db/schema.js";
-import { notify } from "../lib/email.js";
+import { notify, notifyCustomer } from "../lib/email.js";
 import { env } from "../env.js";
 
 /**
@@ -118,6 +118,18 @@ productsRouter.post("/product-requests", limiter, async (req, res) => {
     vatNumber: vatNumber || null,
     message: message || null,
     ip: req.ip ?? null,
+  });
+
+  /* Sets the expectation before they start wondering: what happens next, and
+     that nothing is owed yet. At this price the silence after a request is
+     where most deals quietly die. */
+  notifyCustomer({
+    to: email,
+    subject: `Your request for ${product.title} — Riyad Tech`,
+    heading: `Thank you, ${name.split(" ")[0]}`,
+    body: `We have your request for ${product.title}. Within one working day we will confirm what you need and flag anything that will not fit — before you have paid for it. If we agree it is a fit, an invoice follows, and work starts when the first transfer lands. Nothing is charged until then.`,
+    action: { label: "See how buying works", url: `${env.SITE_URL || "https://riyadtech.xyz"}/products/${slug}` },
+    footer: "You are receiving this because you sent a request through riyadtech.xyz.",
   });
 
   /* The most valuable message this server sends. Someone is asking to buy;
