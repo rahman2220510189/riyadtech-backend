@@ -270,6 +270,47 @@ async function main() {
     ]),
   );
 
+
+    /* Agency-page numbers: seeded separately from the block above, which skips
+     entirely once the settings table has any rows. These four are additive —
+     onConflictDoNothing means running this twice, or running it after the
+     table already has the original eight rows, never overwrites a value
+     someone has since edited in the admin panel. */
+  await db
+    .insert(settings)
+    .values([
+      {
+        key: "agency_team_size",
+        value: "six",
+        label: "Agency page — team size",
+        hint: 'Word, not digit — appears as "a six-person engineering studio." Must match actual headcount.',
+        sort: 100,
+      },
+      {
+        key: "agency_rate_project",
+        value: "€1,200–3,000 per project",
+        label: "Agency page — project rate",
+        hint: "Shown on /agencies, card 01 (Project build)",
+        sort: 101,
+      },
+      {
+        key: "agency_rate_maintenance",
+        value: "€150–400 per site, monthly",
+        label: "Agency page — maintenance rate",
+        hint: "Shown on /agencies, card 02 (Maintenance)",
+        sort: 102,
+      },
+      {
+        key: "agency_rate_developer",
+        value: "€2,000–3,500 per developer, monthly",
+        label: "Agency page — developer rate",
+        hint: "Shown on /agencies, card 03 (Dedicated developer)",
+        sort: 103,
+      },
+    ])
+    .onConflictDoNothing({ target: settings.key });
+  console.info("  settings (agency): ensured 4 rows");
+
   /* --- admin account ---------------------------------------------------- */
 
   const existingUsers = await db.select().from(users);
